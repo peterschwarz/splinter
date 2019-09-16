@@ -145,6 +145,13 @@ mod tests {
     }
 
     #[test]
+    fn test_transport_scaling() {
+        let transport = RawTransport::default();
+
+        tests::test_transport_parameterized(transport, "127.0.0.1:0", 10, 10, 1024);
+    }
+
+    #[test]
     fn test_transport_explicit_protocol() {
         let transport = RawTransport::default();
 

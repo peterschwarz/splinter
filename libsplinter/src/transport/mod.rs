@@ -245,25 +245,90 @@ pub mod tests {
         };
     }
 
-    pub fn test_transport<T: Transport + Send + 'static>(mut transport: T, bind: &str) {
-        let mut listener = assert_ok(transport.listen(bind));
+    pub fn test_transport<T: Transport + Send + 'static>(transport: T, bind: &str) {
+        test_transport_parameterized(transport, bind, 1, 1, 3);
+    }
+
+    pub fn test_transport_parameterized<T: Transport + Send + 'static>(
+        mut transport: T,
+        bind: &str,
+        connections: usize,
+        message_count: usize,
+        message_size: usize,
+    ) {
+        let mut listener = transport.listen(bind).expect("Unable to create listener");
         let endpoint = listener.endpoint();
 
-        let handle = thread::spawn(move || {
-            let mut client = assert_ok(transport.connect(&endpoint));
-            assert_eq!(client.remote_endpoint(), endpoint);
-
-            assert_ok(block!(client.send(&[0, 1, 2]), SendError));
-            assert_eq!(vec![3, 4, 5], assert_ok(block!(client.recv(), RecvError)));
+        let client_handle = thread::spawn(move || {
+            let mut handles = vec![];
+            for _ in 0..connections {
+                let mut client = transport
+                    .connect(&endpoint)
+                    .expect("Unable to connect to server");
+                assert_eq!(client.remote_endpoint(), endpoint);
+                let handle = thread::spawn(move || {
+                    for _ in 0..message_count {
+                        let msg = (0..10).cycle().take(message_size).collect::<Vec<u8>>();
+                        blocking_send(client.as_mut(), &msg);
+                    }
+                    assert_eq!(b"hangup".to_vec(), blocking_recv(client.as_mut()));
+                });
+                handles.push(handle);
+            }
+            for handle in handles.into_iter() {
+                handle
+                    .join()
+                    .expect("unable to join individual client thread");
+            }
         });
 
-        let mut server = assert_ok(listener.incoming().next().unwrap());
+        let server_conns: Result<Vec<Box<dyn Connection>>, AcceptError> =
+            listener.incoming().take(connections).collect();
 
-        assert_eq!(vec![0, 1, 2], assert_ok(block!(server.recv(), RecvError)));
+        let mut server_conns = server_conns.expect("Unable to receive connections from clients");
 
-        assert_ok(block!(server.send(&[3, 4, 5]), SendError));
+        let expected_msg = (0..10).cycle().take(message_size).collect::<Vec<u8>>();
 
-        handle.join().unwrap();
+        for server_conn in server_conns.iter_mut() {
+            for _ in 0..message_count {
+                let received = blocking_recv(server_conn.as_mut());
+                assert!(
+                    expected_msg == received,
+                    "Expected did not match received; expected {} byte(s), was {}",
+                    message_size,
+                    received.len()
+                );
+            }
+            blocking_send(server_conn.as_mut(), b"hangup");
+        }
+
+        client_handle.join().expect("Unable to join client thread");
+    }
+
+    fn blocking_recv(conn: &mut dyn Connection) -> Vec<u8> {
+        loop {
+            match conn.recv() {
+                Ok(msg) => break msg,
+                Err(RecvError::WouldBlock) => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(err) => panic!("Unable to recv message due to {:?}", err),
+            }
+        }
+    }
+
+    fn blocking_send(conn: &mut dyn Connection, msg: &[u8]) {
+        loop {
+            match conn.send(msg) {
+                Ok(_) => break,
+                // Ultimately, this should return a QueueFull (or other
+                // back-pressure error)
+                Err(SendError::WouldBlock) => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(err) => panic!("Unable to send message due to {:?}", err),
+            }
+        }
     }
 
     fn assert_ready(events: &Events, token: Token, readiness: Ready) {
