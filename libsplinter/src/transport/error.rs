@@ -75,6 +75,7 @@ impl_from_io_error!(DisconnectError);
 pub enum AcceptError {
     IoError(io::Error),
     ProtocolError(String),
+    GeneralError(String),
 }
 
 impl_from_io_error!(AcceptError);
