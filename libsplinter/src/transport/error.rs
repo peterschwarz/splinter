@@ -109,9 +109,6 @@ impl fmt::Display for RecvError {
 impl_from_io_error_ext!(RecvError);
 
 #[derive(Debug)]
-pub enum StatusError {}
-
-#[derive(Debug)]
 pub enum DisconnectError {
     IoError(io::Error),
     ProtocolError(String),
@@ -234,6 +231,3 @@ impl fmt::Display for ListenError {
 }
 
 impl_from_io_error!(ListenError);
-
-#[derive(Debug)]
-pub enum PollError {}

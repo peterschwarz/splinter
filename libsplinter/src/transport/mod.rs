@@ -24,8 +24,7 @@ pub mod zmq;
 use mio::Evented;
 
 pub use self::error::{
-    AcceptError, ConnectError, DisconnectError, ListenError, PollError, RecvError, SendError,
-    StatusError,
+    AcceptError, ConnectError, DisconnectError, ListenError, RecvError, SendError,
 };
 
 pub enum Status {
