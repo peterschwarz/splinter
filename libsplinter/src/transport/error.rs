@@ -48,6 +48,30 @@ pub enum SendError {
     Disconnected,
 }
 
+impl Error for SendError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            SendError::IoError(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for SendError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SendError::IoError(e) => write!(f, "an I/O error occurred while sending: {}", e),
+            SendError::ProtocolError(msg) => {
+                write!(f, "a protocol error occurred while sending: {}", msg)
+            }
+            SendError::WouldBlock => f.write_str(
+                "the requested operation would block, but the connection is in non-blocking mode",
+            ),
+            SendError::Disconnected => f.write_str("the connection was disconnected"),
+        }
+    }
+}
+
 impl_from_io_error_ext!(SendError);
 
 #[derive(Debug)]
@@ -56,6 +80,30 @@ pub enum RecvError {
     ProtocolError(String),
     WouldBlock,
     Disconnected,
+}
+
+impl Error for RecvError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            RecvError::IoError(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for RecvError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecvError::IoError(e) => write!(f, "an I/O error occurred while receiving: {}", e),
+            RecvError::ProtocolError(msg) => {
+                write!(f, "a protocol error occurred while receiving: {}", msg)
+            }
+            RecvError::WouldBlock => f.write_str(
+                "the requested operation would block, but the connection is in non-blocking mode",
+            ),
+            RecvError::Disconnected => f.write_str("the connection was disconnected"),
+        }
+    }
 }
 
 impl_from_io_error_ext!(RecvError);
@@ -69,6 +117,28 @@ pub enum DisconnectError {
     ProtocolError(String),
 }
 
+impl Error for DisconnectError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            DisconnectError::IoError(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for DisconnectError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DisconnectError::IoError(e) => {
+                write!(f, "an I/O error occurred while disconnecting: {}", e)
+            }
+            DisconnectError::ProtocolError(msg) => {
+                write!(f, "a protocol error occurred while disconnecting: {}", msg)
+            }
+        }
+    }
+}
+
 impl_from_io_error!(DisconnectError);
 
 #[derive(Debug)]
@@ -76,6 +146,29 @@ pub enum AcceptError {
     IoError(io::Error),
     ProtocolError(String),
     GeneralError(String),
+}
+
+impl Error for AcceptError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            AcceptError::IoError(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for AcceptError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AcceptError::IoError(e) => write!(f, "an I/O error occurred while accepting: {}", e),
+            AcceptError::ProtocolError(msg) => {
+                write!(f, "a protocol error occurred while accepting: {}", msg)
+            }
+            AcceptError::GeneralError(msg) => {
+                write!(f, "an error occurred while accepting: {}", msg)
+            }
+        }
+    }
 }
 
 impl_from_io_error!(AcceptError);
@@ -118,6 +211,26 @@ impl_from_io_error!(ConnectError);
 pub enum ListenError {
     IoError(io::Error),
     ProtocolError(String),
+}
+
+impl Error for ListenError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ListenError::IoError(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for ListenError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ListenError::IoError(e) => write!(f, "an I/O error occurred while listening: {}", e),
+            ListenError::ProtocolError(msg) => {
+                write!(f, "a protocol error occurred while listening: {}", msg)
+            }
+        }
+    }
 }
 
 impl_from_io_error!(ListenError);
