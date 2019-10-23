@@ -127,6 +127,23 @@ pub mod tests {
         }
     }
 
+    macro_rules! assert_match {
+        ($expected:pat, $source:expr) => {{
+            let res = $source;
+            match res {
+                $expected => (),
+                _ => {
+                    assert!(
+                        false,
+                        "Expected {}, but was {:?}",
+                        stringify!($expected),
+                        res
+                    );
+                }
+            }
+        }};
+    }
+
     macro_rules! block {
         ($op:expr, $err:ident) => {
             loop {
@@ -198,6 +215,103 @@ pub mod tests {
             }
             blocking_send(server_conn.as_mut(), b"hangup");
         }
+
+        client_handle.join().expect("Unable to join client thread");
+    }
+
+    /// Test that connections from a given transport behave correctly when the remote end (i.e. the
+    /// user of "connect") of the connection has closed.
+    ///
+    /// Approach:
+    ///
+    /// 1. Create a listener by calling Transport::listen and verify the creation was successful
+    /// 2. Create a child thread closing over the transport
+    /// 3. The child thread creates a single connection by calling Transport::connect
+    /// 4. The child thread will send a message to the parent
+    /// 5. The child thread calls Connection::disconnect
+    /// 6. The parent thread accepts the connection via Listener::incoming
+    /// 7. The parent thread receives the message sent by the child thread
+    /// 8. The parent thread should attempt receive again, but receive a RecvError::Disconnected
+    /// 8. The parent thread should attempt to send again but receive a SendError::Disconnected
+    pub fn test_transport_remote_connection_closed<T: Transport + Send + 'static>(
+        mut transport: T,
+        bind: &str,
+    ) {
+        let mut listener = transport.listen(bind).expect("Unable to create listener");
+        let endpoint = listener.endpoint();
+
+        let client_handle = thread::spawn(move || {
+            let mut client = transport
+                .connect(&endpoint)
+                .expect("Unable to connect to server");
+
+            assert_eq!(endpoint, client.remote_endpoint());
+            blocking_send(client.as_mut(), b"client msg");
+
+            client.disconnect().expect("Could not disconnect client");
+        });
+
+        let mut server_conn = listener
+            .incoming()
+            .next()
+            .expect("No client connection received") // i.e. should not be None
+            .expect("Unable to receive connections"); // i.e should be Ok
+
+        assert_eq!(b"client msg".to_vec(), blocking_recv(server_conn.as_mut()));
+
+        client_handle.join().expect("Unable to join client thread");
+
+        assert_match!(Err(RecvError::Disconnected), server_conn.recv());
+        assert_match!(
+            Err(SendError::Disconnected),
+            server_conn.send(b"server msg")
+        );
+    }
+
+    /// Test that connections from a given transport behave correctly when the local end (i.e. the
+    /// user of listener::accept) of the connection has closed.
+    ///
+    /// Approach:
+    ///
+    /// 1. Create a listener by calling Transport::listen and verify the creation was successful
+    /// 2. Create a child thread closing over the transport
+    /// 3. The parent thread accepts the connection via Listener::incoming
+    /// 4. The parent thread sends message sent to the child thread
+    /// 5. The parent thread calls Connection::disconnect
+    /// 6. The child thread creates a single connection by calling Transport::connect
+    /// 7. The child thread receives the message sent from the parent thread
+    /// 8. The child thread should attempt receive again, but receive a RecvError::Disconnected
+    /// 9. The child thread should attempt to send again but receive a SendError::Disconnected
+    pub fn test_transport_local_connection_closed<T: Transport + Send + 'static>(
+        mut transport: T,
+        bind: &str,
+    ) {
+        let mut listener = transport.listen(bind).expect("Unable to create listener");
+        let endpoint = listener.endpoint();
+
+        let client_handle = thread::spawn(move || {
+            let mut client = transport
+                .connect(&endpoint)
+                .expect("Unable to connect to server");
+
+            assert_eq!(endpoint, client.remote_endpoint());
+            assert_eq!(b"server msg".to_vec(), blocking_recv(client.as_mut()));
+
+            assert_match!(Err(RecvError::Disconnected), client.recv());
+            assert_match!(Err(SendError::Disconnected), client.send(b"client msg"));
+        });
+
+        let mut server_conn = listener
+            .incoming()
+            .next()
+            .expect("No client connection received") // i.e. should not be None
+            .expect("Unable to receive connections"); // i.e should be Ok
+
+        blocking_send(server_conn.as_mut(), b"server msg");
+
+        server_conn
+            .disconnect()
+            .expect("Could not disconnect server");
 
         client_handle.join().expect("Unable to join client thread");
     }
