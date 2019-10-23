@@ -32,7 +32,7 @@ pub fn read<T: Read>(reader: &mut T) -> Result<Vec<u8>, RecvError> {
                 thread::sleep(Duration::from_millis(100));
                 continue;
             }
-            Err(e) => return Err(RecvError::IoError(e)),
+            Err(e) => return Err(RecvError::from(e)),
             Ok(n) => break n,
         };
     };
@@ -51,7 +51,7 @@ pub fn read<T: Read>(reader: &mut T) -> Result<Vec<u8>, RecvError> {
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(100));
             }
-            Err(e) => return Err(RecvError::IoError(e)),
+            Err(e) => return Err(RecvError::from(e)),
         }
     }
     if !remaining.is_empty() {
@@ -76,7 +76,7 @@ pub fn write<T: Write>(writer: &mut T, buffer: &[u8]) -> Result<(), SendError> {
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(100));
             }
-            Err(e) => return Err(SendError::IoError(e)),
+            Err(e) => return Err(SendError::from(e)),
         }
     }
     writer.flush()?;
