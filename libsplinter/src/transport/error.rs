@@ -46,6 +46,7 @@ pub enum SendError {
     ProtocolError(String),
     WouldBlock,
     Disconnected,
+    QueueFull,
 }
 
 impl Error for SendError {
@@ -68,6 +69,7 @@ impl fmt::Display for SendError {
                 "the requested operation would block, but the connection is in non-blocking mode",
             ),
             SendError::Disconnected => f.write_str("the connection was disconnected"),
+            SendError::QueueFull => f.write_str("the connection is full"),
         }
     }
 }

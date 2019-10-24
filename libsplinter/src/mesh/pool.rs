@@ -308,7 +308,7 @@ impl Entry {
                 }
                 Ok(())
             }
-            Err(SendError::WouldBlock) => {
+            Err(SendError::WouldBlock) | Err(SendError::QueueFull) => {
                 self.cached.replace(Some(payload));
                 if !*self.write_evented_guard.borrow() {
                     poll.reregister(
