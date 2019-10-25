@@ -144,21 +144,6 @@ pub mod tests {
         }};
     }
 
-    macro_rules! block {
-        ($op:expr, $err:ident) => {
-            loop {
-                match $op {
-                    Err($err::WouldBlock) => {
-                        thread::sleep(Duration::from_millis(100));
-                        continue;
-                    }
-                    Err(err) => break Err(err),
-                    Ok(ok) => break Ok(ok),
-                }
-            }
-        };
-    }
-
     pub fn test_transport<T: Transport + Send + 'static>(transport: T, bind: &str) {
         test_transport_parameterized(transport, bind, 1, 1, 3);
     }
@@ -316,6 +301,72 @@ pub mod tests {
         client_handle.join().expect("Unable to join client thread");
     }
 
+    /// Test that connections generate "queue full" errors in the appropriate situations
+    ///
+    /// Approach:
+    ///
+    /// 1. Create a listener by calling Transport::listen and verify the creation was successful
+    /// 2. Create a child thread closing over the transport
+    /// 3. The child thread creates a single connection by calling Transport::connect
+    /// 4. The parent thread accepts the connection via Listener::incoming
+    /// 5. The parent thread sends QUEUE_LIMIT + 1 messages to the child thread
+    /// 6. The last message should resulting in a SendError::QueueFull error result
+    /// 7. The child thread should receive QUEUE_LIMIT messages
+    pub fn test_transport_queue_full<T: Transport + Send + 'static>(
+        mut transport: T,
+        bind: &str,
+        queue_limit: usize,
+    ) {
+        let mut listener = transport.listen(bind).expect("Unable to create listener");
+        let endpoint = listener.endpoint();
+
+        let (ready_tx, ready_rx) = channel();
+
+        let client_handle = thread::spawn(move || {
+            let mut client = transport
+                .connect(&endpoint)
+                .expect("Unable to connect to server");
+
+            assert_eq!(endpoint, client.remote_endpoint());
+
+            eprintln!("Waiting for server to fill queue");
+            ready_rx
+                .recv()
+                .expect("Server thread did not signal it had finished its activity");
+            eprintln!("Queue is full; draining...");
+
+            for _ in 0..queue_limit {
+                assert_eq!(b"server_msg".to_vec(), blocking_recv(client.as_mut()));
+            }
+
+            eprintln!("Signaling done...");
+            blocking_send(client.as_mut(), b"client_done");
+        });
+
+        let mut server_conn = listener
+            .incoming()
+            .next()
+            .expect("No client connection received") // i.e. should not be None
+            .expect("Unable to receive connections"); // i.e should be Ok
+
+        for _ in 0..queue_limit {
+            blocking_send(server_conn.as_mut(), b"server_msg");
+        }
+
+        assert_match!(
+            Err(SendError::QueueFull),
+            server_conn.send(b"queue full msg")
+        );
+
+        ready_tx
+            .send(1u8)
+            .expect("Unable to signal client that queue full was reached");
+
+        assert_eq!(b"client_done".to_vec(), blocking_recv(server_conn.as_mut()));
+
+        client_handle.join().expect("Unable to join client thread");
+    }
+
     fn blocking_recv(conn: &mut dyn Connection) -> Vec<u8> {
         loop {
             match conn.recv() {
@@ -398,7 +449,7 @@ pub mod tests {
         let mut connections = Vec::with_capacity(CONNECTIONS);
         for _ in 0..CONNECTIONS {
             let mut conn = assert_ok(listener.accept());
-            assert_ok(block!(conn.send(b"hello"), SendError));
+            blocking_send(conn.as_mut(), b"hello");
             connections.push(conn);
         }
 
@@ -406,7 +457,7 @@ pub mod tests {
         ready_tx.send(()).unwrap();
 
         for mut conn in connections {
-            assert_eq!(b"world".to_vec(), assert_ok(block!(conn.recv(), RecvError)));
+            assert_eq!(b"world".to_vec(), blocking_recv(conn.as_mut()));
         }
 
         handle.join().unwrap();

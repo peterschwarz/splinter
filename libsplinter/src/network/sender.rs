@@ -126,7 +126,7 @@ mod tests {
         sender: Box<dyn Sender<SendRequest>>,
         receiver: Box<dyn Receiver<SendRequest>>,
     ) {
-        let mut transport = RawTransport::default();
+        let mut transport = RawTransport::new().expect("Unable to create transport");
         let mut listener = transport.listen("127.0.0.1:0").unwrap();
         let endpoint = listener.endpoint();
 
@@ -165,7 +165,7 @@ mod tests {
         sender: Box<dyn Sender<SendRequest>>,
         receiver: Box<dyn Receiver<SendRequest>>,
     ) {
-        let mut transport = RawTransport::default();
+        let mut transport = RawTransport::new().expect("Unable to create transport");
         let mut listener = transport.listen("127.0.0.1:0").unwrap();
         let endpoint = listener.endpoint();
 

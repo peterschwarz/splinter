@@ -17,7 +17,7 @@
 //!
 //!     use splinter::{mesh::{Envelope, Mesh}, transport::{Transport, raw::RawTransport}};
 //!
-//!     let mut transport = RawTransport::default();
+//!     let mut transport = RawTransport::new().unwrap();
 //!     let mesh = Mesh::new(1, 1);
 //!     let mut listener = transport.listen("127.0.0.1:0").unwrap();
 //!
@@ -278,6 +278,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(unix))]
     // Test that connections added to a Mesh can send and receive successfully
     fn test_single_connection_send_receive<T: Transport + Send + 'static>(
         mut transport: T,
@@ -359,8 +360,10 @@ mod tests {
         let handle = thread::spawn(move || {
             let mesh = mesh_clone;
 
-            for _ in 0..CONNECTIONS {
+            for i in 0..CONNECTIONS {
+                eprintln!("adding connection {} of {}", i + 1, CONNECTIONS);
                 assert_ok(mesh.add(assert_ok(transport.connect(&endpoint))));
+                eprintln!("added connection {} of {}", i + 1, CONNECTIONS);
             }
 
             // Block waiting for other thread to send everything
@@ -381,9 +384,11 @@ mod tests {
             }
         });
 
-        for _ in 0..CONNECTIONS {
+        for i in 0..CONNECTIONS {
+            eprintln!("accepting connection {} of {}", i + 1, CONNECTIONS);
             let conn = assert_ok(listener.accept());
             let id = assert_ok(mesh.add(conn));
+            eprintln!("accepted connection {} of {}", i + 1, CONNECTIONS);
             assert_ok(mesh.send(Envelope::new(id, b"hello".to_vec())));
         }
 
@@ -405,7 +410,7 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn test_connection_send_receive_raw() {
-        let raw = RawTransport::default();
+        let raw = RawTransport::new().expect("Unable to create transport");
         test_single_connection_send_receive(raw, "127.0.0.1:0");
     }
 
@@ -418,13 +423,13 @@ mod tests {
 
     #[test]
     fn test_add_remove_connections_raw() {
-        let raw = RawTransport::default();
+        let raw = RawTransport::new().expect("Unable to create transport");
         test_add_remove_connections(raw, "127.0.0.1:0");
     }
 
     #[test]
     fn test_many_connections_raw() {
-        let raw = RawTransport::default();
+        let raw = RawTransport::new().expect("Unable to create transport");
         test_many_connections(raw, "127.0.0.1:0");
     }
 

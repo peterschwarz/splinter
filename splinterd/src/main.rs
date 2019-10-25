@@ -38,7 +38,7 @@ use crate::config::{ConfigBuilder, TomlConfig};
 use crate::daemon::SplinterDaemonBuilder;
 use clap::{clap_app, crate_version};
 use openssl::error::ErrorStack;
-use splinter::transport::raw::RawTransport;
+use splinter::transport::raw::{RawTransport, TransportCreateError};
 use splinter::transport::tls::{TlsInitError, TlsTransport};
 use splinter::transport::Transport;
 use tempdir::TempDir;
@@ -411,7 +411,10 @@ fn get_transport(
                 Ok(Box::new(transport))
             }
         }
-        "raw" => Ok(Box::new(RawTransport::default())),
+        "raw" => {
+            let raw_transport = RawTransport::new()?;
+            Ok(Box::new(raw_transport))
+        }
         _ => Err(GetTransportError::NotSupportedError(format!(
             "Transport type {} is not supported",
             transport_type
@@ -426,6 +429,7 @@ pub enum GetTransportError {
     TlsTransportError(TlsInitError),
     OpensslError(ErrorStack),
     IoError(io::Error),
+    RawTransportError(TransportCreateError),
 }
 
 impl From<CertError> for GetTransportError {
@@ -449,5 +453,11 @@ impl From<ErrorStack> for GetTransportError {
 impl From<io::Error> for GetTransportError {
     fn from(io_error: io::Error) -> Self {
         GetTransportError::IoError(io_error)
+    }
+}
+
+impl From<TransportCreateError> for GetTransportError {
+    fn from(err: TransportCreateError) -> Self {
+        GetTransportError::RawTransportError(err)
     }
 }

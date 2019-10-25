@@ -222,7 +222,15 @@ fn get_transport(matches: &clap::ArgMatches) -> Result<Box<dyn Transport + Send>
                 ))),
             }
         }
-        Some("raw") => Ok(Box::new(RawTransport::default())),
+        Some("raw") => {
+            let raw_transport = RawTransport::new().map_err(|e| {
+                CliError(format!(
+                    "An error occurred while creating raw transport: {}",
+                    e
+                ))
+            })?;
+            Ok(Box::new(raw_transport))
+        }
         // this should have been caught by clap, so panic
         _ => panic!(
             "Transport type is not supported: {:?}",

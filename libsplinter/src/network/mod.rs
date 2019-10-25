@@ -411,7 +411,7 @@ pub mod tests {
         let mesh_one = Mesh::new(5, 5);
         let network_one = Network::new(mesh_one, 2).unwrap();
 
-        let mut transport = RawTransport::default();
+        let mut transport = RawTransport::new().expect("Unable to create transport");
 
         let mut listener = assert_ok(transport.listen("127.0.0.1:0"));
         let endpoint = listener.endpoint();

@@ -17,6 +17,7 @@ zmq-transport = ["zmq"]
 ursa-compat = ["ursa"]
 sawtooth-signing-compat = ["sawtooth-sdk"]
 events = ["hyper", "tokio", "awc"]
+large-message-tests = []
 
 [package]
 name = "splinter"
