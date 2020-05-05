@@ -17,6 +17,7 @@ use crate::futures::IntoFuture;
 use crate::rest_api::{Resource, RestResourceProvider};
 
 use super::ServiceOrchestrator;
+use super::OrchestratorError;
 
 /// The `ServiceOrchestrator` exposes REST API resources provided by the
 /// [`ServiceFactory::get_rest_endpoints`] methods of its factories. Each factory defines the
@@ -62,32 +63,32 @@ impl RestResourceProvider for ServiceOrchestrator {
                                 .unwrap_or("")
                                 .to_string();
 
-                            let services = match services.lock() {
-                                Ok(s) => s,
-                                Err(err) => {
-                                    error!("Orchestrator's service lock is poisoned: {}", err);
-                                    return Box::new(
-                                        HttpResponse::InternalServerError()
-                                            .json(json!({
-                                                "message": "An internal error occurred"
-                                            }))
-                                            .into_future(),
-                                    )
-                                    .into_future();
-                                }
-                            };
+                            let service = {
+                                let services = match services.lock() {
+                                    Ok(s) => s,
+                                    Err(err) => {
+                                        error!("Orchestrator's service lock is poisoned: {}", err);
+                                        return Box::new(
+                                            HttpResponse::InternalServerError()
+                                                .json(json!({
+                                                    "message": "An internal error occurred"
+                                                }))
+                                                .into_future(),
+                                        )
+                                        .into_future();
+                                    }
+                                };
 
-                            let service =
-                                match services.iter().find_map(|(service_def, managed_service)| {
-                                    if service_def.service_type == service_type
+                                services.iter().find(|(service_def, _)| {
+                                    service_def.service_type == service_type
                                         && service_def.circuit == circuit
                                         && service_def.service_id == service_id
-                                    {
-                                        Some(&*managed_service.service)
-                                    } else {
-                                        None
-                                    }
-                                }) {
+                                })
+                                .map(|(_, m)| m)
+                                .cloned()
+                            };
+
+                            let service = match service {
                                     Some(s) => s,
                                     None => {
                                         return Box::new(
@@ -105,7 +106,34 @@ impl RestResourceProvider for ServiceOrchestrator {
                                     }
                                 };
 
-                            handler(request, payload, service)
+                            match service.apply(|service| handler(request, payload, service)) {
+                                Ok(res) => res,
+                                Err(OrchestratorError::UnknownService) => {
+                                    Box::new(
+                                        HttpResponse::NotFound()
+                                            .json(json!({
+                                                "message":
+                                                    format!(
+                                                        "{} service {} on circuit {} not found",
+                                                        service_type, service_id, circuit
+                                                    )
+                                            }))
+                                            .into_future(),
+                                    )
+                                    .into_future()
+                                }
+                                Err(err) => {
+                                    error!("ManagedService's service lock is poisoned: {}", err);
+                                    Box::new(
+                                        HttpResponse::InternalServerError()
+                                            .json(json!({
+                                                "message": "An internal error occurred"
+                                            }))
+                                            .into_future(),
+                                    )
+                                    .into_future()
+                                }
+                            }
                         })
                     })
                     .collect::<Vec<_>>();

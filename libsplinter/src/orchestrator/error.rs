@@ -37,6 +37,7 @@ impl std::fmt::Display for NewOrchestratorError {
 pub enum OrchestratorError {
     Internal(Box<dyn Error + Send>),
     LockPoisoned,
+    UnknownService,
 }
 
 impl Error for OrchestratorError {
@@ -44,6 +45,7 @@ impl Error for OrchestratorError {
         match self {
             OrchestratorError::Internal(err) => Some(&**err),
             OrchestratorError::LockPoisoned => None,
+            OrchestratorError::UnknownService => None,
         }
     }
 }
@@ -55,6 +57,7 @@ impl std::fmt::Display for OrchestratorError {
                 write!(f, "an orchestration error occurred: {}", err)
             }
             OrchestratorError::LockPoisoned => write!(f, "internal lock poisoned"),
+            OrchestratorError::UnknownService => write!(f, "specified service not found"),
         }
     }
 }

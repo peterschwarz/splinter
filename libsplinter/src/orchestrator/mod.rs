@@ -58,10 +58,90 @@ pub struct ServiceDefinition {
     pub service_type: String,
 }
 
+impl std::fmt::Display for ServiceDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}::{} ({})",
+            self.circuit, self.service_id, self.service_type
+        )
+    }
+}
+
 /// Stores a service and other structures that are used to manage it
+#[derive(Clone)]
 struct ManagedService {
-    pub service: Box<dyn Service>,
-    pub registry: StandardServiceNetworkRegistry,
+    service: Arc<Mutex<Option<Box<dyn Service>>>>,
+    registry: StandardServiceNetworkRegistry,
+}
+
+impl ManagedService {
+    fn new(service: Box<dyn Service>, registry: StandardServiceNetworkRegistry) -> Self {
+        Self {
+            service: Arc::new(Mutex::new(Some(service))),
+            registry,
+        }
+    }
+
+    fn handle_message(
+        &self,
+        payload: &[u8],
+        msg_context: &ServiceMessageContext,
+    ) -> Result<(), OrchestratorError> {
+        let service = self
+            .service
+            .lock()
+            .map_err(|_| OrchestratorError::LockPoisoned)?;
+
+        match &*service {
+            Some(service) => {
+                if let Err(err) = service.handle_message(payload, &msg_context) {
+                    error!("unable to handle admin direct message: {}", err);
+                }
+                Ok(())
+            }
+            None => Err(OrchestratorError::UnknownService),
+        }
+    }
+
+    fn shutdown(&self, service_definition: &ServiceDefinition) -> Result<(), ShutdownServiceError> {
+        let mut service = self
+            .service
+            .lock()
+            .map_err(|_| ShutdownServiceError::LockPoisoned)?;
+
+        if let Some(mut service) = service.take() {
+            service.stop(&self.registry).map_err(|err| {
+                ShutdownServiceError::ShutdownFailed((service_definition.clone(), Box::new(err)))
+            })?;
+            service.destroy().map_err(|err| {
+                ShutdownServiceError::ShutdownFailed((service_definition.clone(), Box::new(err)))
+            })?;
+        } else {
+            error!(
+                "Attempting to destroy an already destroyed service: {:?}",
+                service_definition
+            );
+        }
+
+        Ok(())
+    }
+
+    fn apply<F, R>(&self, f: F) -> Result<R, OrchestratorError>
+    where
+        F: FnOnce(&dyn Service) -> R,
+    {
+        let service = self
+            .service
+            .lock()
+            .map_err(|_| OrchestratorError::LockPoisoned)?;
+
+        if let Some(service) = service.as_ref() {
+            Ok(f(&**service))
+        } else {
+            Err(OrchestratorError::UnknownService)
+        }
+    }
 }
 
 /// The `ServiceOrchestrator` manages initialization and shutdown of services.
@@ -240,7 +320,7 @@ impl ServiceOrchestrator {
         self.services
             .lock()
             .map_err(|_| InitializeServiceError::LockPoisoned)?
-            .insert(service_definition, ManagedService { service, registry });
+            .insert(service_definition, ManagedService::new(service, registry));
 
         Ok(())
     }
@@ -250,22 +330,14 @@ impl ServiceOrchestrator {
         &self,
         service_definition: &ServiceDefinition,
     ) -> Result<(), ShutdownServiceError> {
-        let ManagedService {
-            mut service,
-            registry,
-        } = self
+        let service = self
             .services
             .lock()
             .map_err(|_| ShutdownServiceError::LockPoisoned)?
             .remove(service_definition)
             .ok_or(ShutdownServiceError::UnknownService)?;
 
-        service.stop(&registry).map_err(|err| {
-            ShutdownServiceError::ShutdownFailed((service_definition.clone(), Box::new(err)))
-        })?;
-        service.destroy().map_err(|err| {
-            ShutdownServiceError::ShutdownFailed((service_definition.clone(), Box::new(err)))
-        })?;
+        service.shutdown(service_definition)?;
 
         Ok(())
     }
@@ -299,23 +371,16 @@ impl ServiceOrchestrator {
         &self.supported_service_types
     }
 
-    pub fn destroy(self) -> Result<(), OrchestratorError> {
+    fn shutdown_and_join(&mut self) -> Result<(), OrchestratorError> {
         let mut services = self
             .services
             .lock()
             .map_err(|_| OrchestratorError::LockPoisoned)?;
 
-        for (_, managed_service) in services.drain() {
-            let ManagedService {
-                mut service,
-                registry,
-            } = managed_service;
-            service
-                .stop(&registry)
-                .map_err(|err| OrchestratorError::Internal(Box::new(err)))?;
-            service
-                .destroy()
-                .map_err(|err| OrchestratorError::Internal(Box::new(err)))?;
+        for (service_definition, managed_service) in services.drain() {
+            if let Err(err) = managed_service.shutdown(&service_definition) {
+                error!("Unable to cleanly shutdown {}: {}", service_definition, err);
+            }
         }
 
         self.running.store(false, Ordering::SeqCst);
@@ -336,6 +401,18 @@ impl ServiceOrchestrator {
         };
         Ok(())
     }
+
+    pub fn destroy(mut self) -> Result<(), OrchestratorError> {
+        self.shutdown_and_join()
+    }
+}
+
+impl Drop for ServiceOrchestrator {
+    fn drop(&mut self) {
+        if let Err(err) =  self.shutdown_and_join() {
+            error!("Unable to cleanly drop Service Orchestrator: {}", err)
+        }
+    }
 }
 
 pub struct JoinHandles<T> {
@@ -347,10 +424,10 @@ impl<T> JoinHandles<T> {
         Self { join_handles }
     }
 
-    pub fn join_all(self) -> thread::Result<Vec<T>> {
+    pub fn join_all(&mut self) -> thread::Result<Vec<T>> {
         let mut res = Vec::with_capacity(self.join_handles.len());
 
-        for jh in self.join_handles.into_iter() {
+        for jh in self.join_handles.drain(..) {
             res.push(jh.join()?);
         }
 
@@ -484,6 +561,24 @@ pub fn run_incoming_loop(
     Ok(())
 }
 
+fn find_service(
+    services: &Arc<Mutex<HashMap<ServiceDefinition, ManagedService>>>,
+    circuit_id: &str,
+    service_id: &str,
+) -> Result<Option<ManagedService>, OrchestratorError> {
+    let services = services
+        .lock()
+        .map_err(|_| OrchestratorError::LockPoisoned)?;
+
+    Ok(services
+        .iter()
+        .find(|(service_def, _)| {
+            service_def.circuit == circuit_id && service_def.service_id == service_id
+        })
+        .map(|(_, ms)| ms)
+        .cloned())
+}
+
 fn run_inbound_loop(
     services: Arc<Mutex<HashMap<ServiceDefinition, ManagedService>>>,
     inbound_receiver: Receiver<Result<(CircuitMessageType, Vec<u8>), channel::RecvError>>,
@@ -506,19 +601,13 @@ fn run_inbound_loop(
                 let mut admin_direct_message: AdminDirectMessage = protobuf::parse_from_bytes(&msg)
                     .map_err(|err| OrchestratorError::Internal(Box::new(err)))?;
 
-                let services = services
-                    .lock()
-                    .map_err(|_| OrchestratorError::LockPoisoned)?;
+                let service = find_service(
+                    &services,
+                    admin_direct_message.get_circuit(),
+                    admin_direct_message.get_recipient(),
+                )?;
 
-                match services.iter().find_map(|(service_def, managed_service)| {
-                    if service_def.circuit == admin_direct_message.get_circuit()
-                        && service_def.service_id == admin_direct_message.get_recipient()
-                    {
-                        Some(&managed_service.service)
-                    } else {
-                        None
-                    }
-                }) {
+                match service {
                     Some(service) => {
                         let msg_context = ServiceMessageContext {
                             sender: admin_direct_message.take_sender(),
@@ -544,19 +633,12 @@ fn run_inbound_loop(
                     protobuf::parse_from_bytes(&msg)
                         .map_err(|err| OrchestratorError::Internal(Box::new(err)))?;
 
-                let services = services
-                    .lock()
-                    .map_err(|_| OrchestratorError::LockPoisoned)?;
-
-                match services.iter().find_map(|(service_def, managed_service)| {
-                    if service_def.circuit == circuit_direct_message.get_circuit()
-                        && service_def.service_id == circuit_direct_message.get_recipient()
-                    {
-                        Some(&managed_service.service)
-                    } else {
-                        None
-                    }
-                }) {
+                let service = find_service(
+                    &services,
+                    circuit_direct_message.get_circuit(),
+                    circuit_direct_message.get_recipient(),
+                )?;
+                match service {
                     Some(service) => {
                         let msg_context = ServiceMessageContext {
                             sender: circuit_direct_message.take_sender(),

@@ -28,6 +28,7 @@ use crate::service::{ServiceNetworkRegistry, ServiceNetworkSender};
 
 const ADMIN_CIRCUIT_NAME: &str = "admin";
 
+#[derive(Clone)]
 pub struct StandardServiceNetworkRegistry {
     circuit: String,
     outgoing_sender: Sender<Vec<u8>>,
