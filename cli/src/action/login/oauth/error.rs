@@ -12,24 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod error;
+use std::error::Error;
+use std::fmt;
 
-/// Contains the user information required
-pub struct UserTokens {
-    pub provider_type: String,
-    pub access_token: String,
-    pub refresh_token: Option<String>,
-}
+/// May be returned by an OAuth2Provider if the underlying implementation encounters an error while
+/// fetching authorization tokens.
+#[derive(Debug)]
+pub struct OAuth2ProviderError(pub String);
 
-impl std::fmt::Debug for UserTokens {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("UserTokens")
-            .field("provider_type", &self.provider_type)
-            .field("access_token", &"<Redacted>".to_string())
-            .field(
-                "refresh_token",
-                &self.refresh_token.as_deref().map(|_| "<Redacted>"),
-            )
-            .finish()
+impl fmt::Display for OAuth2ProviderError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
+
+impl Error for OAuth2ProviderError {}
