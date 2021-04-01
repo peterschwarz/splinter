@@ -15,10 +15,15 @@
 //! Client traits to receive AdminServiceEvents.
 
 mod error;
+mod ws;
 
 use super::ProposalSlice;
 
 pub use error::{NextEventError, TryNextEventError};
+#[cfg(feature = "admin-service-event-client-ws")]
+pub use ws::{
+    RunnableWsAdminServiceEventClient, WsAdminServiceEventClient, WsAdminServiceEventClientBuilder,
+};
 
 /// A public key for the private key that signed an admin proposal.
 #[derive(Clone, PartialEq)]
