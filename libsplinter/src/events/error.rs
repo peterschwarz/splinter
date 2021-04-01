@@ -21,7 +21,7 @@ use tokio::io;
 pub enum ParseError {
     MalformedMessage(Box<dyn error::Error + Send + Sync + 'static>),
     /// This type provides a sendable alternative to source errors that may not be Sync and Send.
-    MalformedReducedToString(String)
+    MalformedReducedToString(String),
 }
 
 impl error::Error for ParseError {
