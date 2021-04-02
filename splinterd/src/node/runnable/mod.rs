@@ -20,6 +20,7 @@ pub(super) mod network;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use splinter::error::InternalError;
+use splinter::events::Reactor;
 use splinter::rest_api::actix_web_1::RestApi;
 use splinter::rest_api::actix_web_3::RunnableRestApi;
 
@@ -128,6 +129,7 @@ impl RunnableNode {
             admin_signer: self.admin_signer,
             admin_subsystem,
             network_subsystem,
+            reactor: Some(Reactor::new()),
             rest_api_variant,
             rest_api_port,
             node_id,
