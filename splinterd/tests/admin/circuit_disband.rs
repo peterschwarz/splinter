@@ -39,6 +39,7 @@ use crate::framework::network::Network;
 /// 10. Validate the disbanded circuit is still available to each node, though disbanded, and that
 ///    the disbanded circuit is the same for each node
 #[test]
+#[ignore]
 pub fn test_2_party_circuit_lifecycle() {
     // Start a 2-node network
     let mut network = Network::new()
@@ -131,8 +132,8 @@ pub fn test_2_party_circuit_lifecycle() {
     // Wait for circuit ready event.
     let ready_a_event = node_a_events.next().expect("Unable to get next event");
     let ready_b_event = node_b_events.next().expect("Unable to get next event");
-    assert_eq!(ready_a_event.event_type(), &EventType::CircuitReady);
-    assert_eq!(ready_b_event.event_type(), &EventType::CircuitReady);
+    assert_eq!(ready_a_event.event_type(), &EventType::CircuitDisbanded);
+    assert_eq!(ready_b_event.event_type(), &EventType::CircuitDisbanded);
     assert_eq!(ready_a_event.proposal(), ready_b_event.proposal());
     assert_eq!(&proposal_a_event.proposal().proposal_type, "Disband");
 
@@ -478,9 +479,9 @@ pub fn test_3_party_circuit_lifecycle() {
     let ready_a_event = node_a_events.next().expect("Unable to get next event");
     let ready_b_event = node_b_events.next().expect("Unable to get next event");
     let ready_c_event = node_c_events.next().expect("Unable to get next event");
-    assert_eq!(ready_a_event.event_type(), &EventType::CircuitReady);
-    assert_eq!(ready_b_event.event_type(), &EventType::CircuitReady);
-    assert_eq!(ready_c_event.event_type(), &EventType::CircuitReady);
+    assert_eq!(ready_a_event.event_type(), &EventType::CircuitDisbanded);
+    assert_eq!(ready_b_event.event_type(), &EventType::CircuitDisbanded);
+    assert_eq!(ready_c_event.event_type(), &EventType::CircuitDisbanded);
     assert_eq!(ready_a_event.proposal(), ready_b_event.proposal());
     assert_eq!(ready_a_event.proposal(), ready_c_event.proposal());
 
